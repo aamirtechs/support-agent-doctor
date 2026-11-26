@@ -1,0 +1,4 @@
+ticket_id,agent,status,created_at,first_reply_at,solved_at,replies,reopens,escalated,csat,channel
+T-401,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,1,no,good,email
+T-402,Ben,open,2026-11-17 08:00,2026-11-17 08:10,,1,0,no,,chat
+T-403,Ben,solved,2026-11-16 09:00,2026-11-16 09:30,2026-11-16 12:00,2,0,yes,good,email

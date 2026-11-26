@@ -1,0 +1,21 @@
+ticket_id,agent,status,created_at,first_reply_at,solved_at,replies,reopens,escalated,csat,channel
+T-101,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-102,Ana,solved,2026-11-16 09:00,2026-11-17 06:00,2026-11-17 12:00,5,0,no,good,chat
+T-103,Ben,solved,2026-11-15 09:00,2026-11-15 10:00,2026-11-17 10:00,12,1,no,bad,email
+T-104,Ben,open,2026-11-16 09:00,,,0,0,no,bad,chat
+T-105,Cara,solved,2026-11-14 09:00,2026-11-14 09:15,2026-11-14 11:00,2,0,no,good,email
+T-106,Cara,solved,2026-11-13 09:00,2026-11-13 09:20,2026-11-13 10:00,1,2,yes,good,phone
+T-107,Dan,open,2026-11-17 08:00,2026-11-17 08:10,,1,0,no,,chat
+T-108,Dan,open,2026-11-16 08:00,,,0,0,no,,email
+T-109,Dan,pending,2026-11-15 08:00,2026-11-15 08:30,,2,0,no,,email
+T-110,Ana,solved,2026-11-17 10:00,2026-11-17 09:00,2026-11-17 12:00,2,0,no,good,chat
+T-111,Ben,solved,2026-11-16 09:00,2026-11-16 09:30,2026-11-15 09:00,3,0,no,good,email
+T-112,Cara,solved,not-a-date,2026-11-14 09:00,2026-11-14 10:00,2,0,no,good,email
+T-113,Dan,solved,2026-12-01 09:00,2026-12-01 09:30,2026-12-01 10:00,2,0,no,good,chat
+T-101,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-114,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email,extra-field
+,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-115,,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-116,Ben,solved,2026-11-17 09:00,2026-11-17 09:10,2026-11-17 09:20,1,0,no,weird,email
+T-117,Ana,open,2026-11-17 09:00,,,0,0,no,,email
+T-118,Dan,open,2026-11-17 10:00,2026-11-17 10:05,,1,0,no,,chat

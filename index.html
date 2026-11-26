@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support Agent Doctor - AamirTechs</title>
+<style>
+:root{--navy:#0b1f3a;--gold:#d4a72c;--bg:#f6f8fb;--ink:#1c2733;--muted:#5b6b7c;--line:#d9e1ea}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--navy);color:#fff;padding:28px 20px;border-bottom:4px solid var(--gold)}
+header .wrap{max-width:880px;margin:0 auto}
+header h1{margin:0 0 6px;font-size:1.6rem}
+header p{margin:0;color:#c8d4e4}
+main{max-width:880px;margin:24px auto;padding:0 20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(11,31,58,.08)}
+label{display:block;font-weight:600;margin:14px 0 6px}
+.card>label:first-child{margin-top:0}
+textarea{width:100%;min-height:180px;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.85rem}
+input[type=text],input[type=number],select{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.95rem;width:100%}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:4px}
+.grid label{margin:0 0 6px}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+button{background:var(--navy);color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:.95rem;cursor:pointer}
+button.alt{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+button.gold{background:var(--gold);color:#0b1f3a;font-weight:600}
+pre{background:#0b1f3a;color:#eef3f9;border-radius:8px;padding:16px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;min-height:60px;font-size:.85rem}
+footer{max-width:880px;margin:0 auto 32px;padding:0 20px;color:var(--muted);font-size:.9rem}
+footer a{color:var(--navy)}
+.hint{color:var(--muted);font-size:.85rem;margin-top:6px;font-weight:400}
+</style>
+</head>
+<body>
+<header><div class="wrap"><h1>Support Agent Doctor</h1><p>Audit a support ticket CSV export for agent performance: slow first replies, tickets with no first reply past the target, slow resolutions, reopened tickets (once, or repeatedly), escalated tickets, tickets that took too many replies to solve, and bad data such as duplicate ticket ids, malformed rows, invalid timestamps, impossible date orderings, and invalid CSAT values. It also scores every agent: open load, average first reply and resolution time, reopen rate, escalation rate, and CSAT.</p></div></header>
+<main><div class="card">
+<label for="file">Input CSV file</label>
+<input type="file" id="file" accept=".csv,text/csv">
+<label for="input">Or paste the tickets CSV</label>
+<textarea id="input" spellcheck="false" placeholder="Paste a support tickets CSV export here, or load the sample."></textarea>
+<label>Options</label>
+<div class="grid">
+<div><label for="opt-first">Max first reply hours <span class="hint">(--max-first-reply-hours)</span></label><input type="number" id="opt-first" step="any" value="4"></div>
+<div><label for="opt-res">Max resolution hours <span class="hint">(--max-resolution-hours)</span></label><input type="number" id="opt-res" step="any" value="48"></div>
+<div><label for="opt-replies">Max replies <span class="hint">(--max-replies)</span></label><input type="number" id="opt-replies" step="1" value="10"></div>
+<div><label for="opt-open">Max open tickets <span class="hint">(--max-open)</span></label><input type="number" id="opt-open" step="1" value="15"></div>
+<div><label for="opt-reopen">Max reopen rate % <span class="hint">(--max-reopen-rate)</span></label><input type="number" id="opt-reopen" step="1" value="20"></div>
+<div><label for="opt-csat">Min CSAT % <span class="hint">(--min-csat)</span></label><input type="number" id="opt-csat" step="1" value="80"></div>
+<div><label for="opt-asof">As-of date <span class="hint">(--as-of, blank means now)</span></label><input type="text" id="opt-asof" placeholder="2026-11-18"></div>
+</div>
+<div class="row"><button class="gold" id="run" type="button">Run check</button><button class="alt" id="sample" type="button">Load sample</button><button class="alt" id="sample-clean" type="button">Load clean sample</button><button class="alt" id="sample-warn" type="button">Load warnings sample</button><button class="alt" id="download" type="button">Download report</button></div>
+<label for="out">Report</label>
+<pre id="out">Your report will appear here.</pre>
+</div></main>
+<footer>
+<p>Built by AamirTechs. <a href="https://aamirtechs.github.io/">All tools</a> | <a href="https://github.com/aamirtechs/support-agent-doctor">Source</a></p>
+<p>Privacy: this tool runs 100% in your browser, nothing is uploaded.</p>
+</footer>
+<script id="core">
+// Pure logic port of support_agent_doctor.py. No DOM access in this block.
+function fmtF(x, digits) {
+  // Python "%.<digits>f" formatting of a double: round half even on
+  // the exact binary value.
+  if (typeof x !== "number" || !isFinite(x)) return String(x);
+  var neg = x < 0 || Object.is(x, -0);
+  var ax = Math.abs(x);
+  var buf = new DataView(new ArrayBuffer(8));
+  buf.setFloat64(0, ax);
+  var hi = buf.getUint32(0), lo = buf.getUint32(4);
+  var expBits = (hi >>> 20) & 0x7ff;
+  var mant, e2;
+  if (expBits === 0) { mant = BigInt(hi & 0xfffff) * 4294967296n + BigInt(lo); e2 = -1074; }
+  else { mant = BigInt((hi & 0xfffff) | 0x100000) * 4294967296n + BigInt(lo); e2 = expBits - 1075; }
+  var num = mant * (10n ** BigInt(digits));
+  var den = 1n;
+  if (e2 >= 0) num *= (2n ** BigInt(e2)); else den = 2n ** BigInt(-e2);
+  var q = num / den, r = num % den;
+  if (r * 2n > den || (r * 2n === den && (q & 1n) === 1n)) q += 1n;
+  var s = q.toString();
+  if (digits > 0) {
+    while (s.length <= digits) s = "0" + s;
+    s = s.slice(0, s.length - digits) + "." + s.slice(s.length - digits);
+  }
+  return (neg ? "-" : "") + s;
+}
+function pyRepr(v) {
+  if (v === null || v === undefined) return "None";
+  if (typeof v === "string") {
+    var esc = v.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    if (v.indexOf("'") >= 0 && v.indexOf('"') < 0) return '"' + esc + '"';
+    return "'" + esc.replace(/'/g, "\\'") + "'";
+  }
+  return String(v);
+}
+function parseCsvRows(text) {
+  // Mirrors Python csv.reader with the default dialect.
+  var rows = [], row = [], field = "", state = 0, i, ch;
+  text = String(text).replace(/^\uFEFF/, "");
+  function endField() { row.push(field); field = ""; state = 0; }
+  function endRow() { endField(); rows.push(row); row = []; }
+  for (i = 0; i < text.length; i++) {
+    ch = text[i];
+    if (state === 2) {
+      if (ch === '"') state = 3;
+      else field += ch;
+    } else if (state === 3) {
+      if (ch === '"') { field += '"'; state = 2; }
+      else if (ch === ",") endField();
+      else if (ch === "\n") endRow();
+      else if (ch === "\r") { if (text[i + 1] === "\n") i++; endRow(); }
+      else { field += ch; state = 1; }
+    } else if (state === 0 && ch === '"') {
+      state = 2;
+    } else if (ch === ",") endField();
+    else if (ch === "\n") endRow();
+    else if (ch === "\r") { if (text[i + 1] === "\n") i++; endRow(); }
+    else { field += ch; state = 1; }
+  }
+  if (state !== 0 || field !== "" || row.length) endRow();
+  return rows;
+}
+function daysFromCivil(y, m, d) {
+  y -= m <= 2 ? 1 : 0;
+  var era = Math.floor(y / 400);
+  var yoe = y - era * 400;
+  var mp = (m + 9) % 12;
+  var doy = Math.floor((153 * mp + 2) / 5) + d - 1;
+  var doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+function validDate(y, mo, d) {
+  if (mo < 1 || mo > 12 || d < 1) return false;
+  var leap = (y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0));
+  var dim = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+  return d <= dim;
+}
+function makeTs(y, mo, d, h, mi, s, micro, offMin) {
+  var secs = daysFromCivil(y, mo, d) * 86400 + h * 3600 + mi * 60 + s - offMin * 60;
+  return { micro: BigInt(secs) * 1000000n + BigInt(micro), y: y, mo: mo, d: d, h: h, mi: mi };
+}
+function isoParse(text) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})(?:.(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:\s*([+-]\d{2}(?::?\d{2})?(?::?\d{2})?))?)?$/.exec(text);
+  if (m) {
+    var y = +m[1], mo = +m[2], d = +m[3];
+    if (!validDate(y, mo, d)) return null;
+    var h = m[4] !== undefined ? +m[4] : 0;
+    var mi = m[5] !== undefined ? +m[5] : 0;
+    var s = m[6] !== undefined ? +m[6] : 0;
+    if (h > 23 || mi > 59 || s > 59) return null;
+    var micro = m[7] ? parseInt((m[7] + "000000").slice(0, 6), 10) : 0;
+    var offMin = 0;
+    if (m[8]) {
+      var sign = m[8][0] === "-" ? -1 : 1;
+      var digs = m[8].slice(1).replace(/:/g, "");
+      var oh = +digs.slice(0, 2);
+      var om = digs.length >= 4 ? +digs.slice(2, 4) : 0;
+      var os = digs.length >= 6 ? +digs.slice(4, 6) : 0;
+      if (oh > 23 || om > 59 || os > 59) return null;
+      offMin = sign * (oh * 60 + om + os / 60);
+    }
+    return makeTs(y, mo, d, h, mi, s, micro, offMin);
+  }
+  if (/^\d{8}$/.test(text)) {
+    var y2 = +text.slice(0, 4), mo2 = +text.slice(4, 6), d2 = +text.slice(6, 8);
+    if (validDate(y2, mo2, d2)) return makeTs(y2, mo2, d2, 0, 0, 0, 0, 0);
+  }
+  return null;
+}
+function parseTimestamp(text) {
+  if (text === null || text === undefined) return null;
+  text = String(text).trim();
+  if (!text) return null;
+  var candidate = text;
+  if (candidate.endsWith("Z") || candidate.endsWith("z")) candidate = candidate.slice(0, -1) + "+00:00";
+  var parsed = isoParse(candidate);
+  if (parsed) return parsed;
+  var pats = [
+    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2}):(\d{1,2})$/, map: "y" },
+    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2})$/, map: "y" },
+    { re: /^(\d{4})-(\d{1,2})-(\d{1,2})$/, map: "y" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/, map: "d" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{1,2})$/, map: "m" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, map: "d" },
+    { re: /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/, map: "m" }
+  ];
+  for (var i = 0; i < pats.length; i++) {
+    var mm = pats[i].re.exec(candidate);
+    if (!mm) continue;
+    var g = mm.slice(1).map(Number);
+    var Y, Mo, D, H = 0, Mi = 0, S = 0;
+    if (pats[i].map === "y") { Y = g[0]; Mo = g[1]; D = g[2]; if (g.length > 3) { H = g[3]; Mi = g[4]; } if (g.length > 5) S = g[5]; }
+    else if (pats[i].map === "d") { D = g[0]; Mo = g[1]; Y = g[2]; if (g.length > 3) { H = g[3]; Mi = g[4]; } }
+    else { Mo = g[0]; D = g[1]; Y = g[2]; if (g.length > 3) { H = g[3]; Mi = g[4]; } }
+    if (!validDate(Y, Mo, D) || H > 23 || Mi > 59 || S > 59) continue;
+    return makeTs(Y, Mo, D, H, Mi, S, 0, 0);
+  }
+  return null;
+}
+function pad2(n) { return (n < 10 ? "0" : "") + n; }
+function padYear(y) { var s = String(y); while (s.length < 4) s = "0" + s; return s; }
+function fmtTs(ts) { return padYear(ts.y) + "-" + pad2(ts.mo) + "-" + pad2(ts.d) + " " + pad2(ts.h) + ":" + pad2(ts.mi); }
+function nowTs() {
+  var n = new Date();
+  return { micro: BigInt(n.getTime()) * 1000n, y: n.getUTCFullYear(), mo: n.getUTCMonth() + 1, d: n.getUTCDate(), h: n.getUTCHours(), mi: n.getUTCMinutes() };
+}
+function findColumn(header, names) {
+  for (var i = 0; i < names.length; i++) if (header.indexOf(names[i]) >= 0) return names[i];
+  return null;
+}
+function parseIntPy(text, def) {
+  def = def || 0;
+  if (text === null || text === undefined) return def;
+  text = String(text).trim();
+  if (!text) return def;
+  if (/^[+-]?\d+(_\d+)*$/.test(text)) return parseInt(text.replace(/_/g, ""), 10);
+  var f = Number(text);
+  if (isFinite(f)) return Math.trunc(f);
+  return def;
+}
+function parseYes(text) {
+  if (text === null || text === undefined) return false;
+  return ["yes", "true", "1", "y"].indexOf(String(text).trim().toLowerCase()) >= 0;
+}
+function hoursBetween(start, end) {
+  if (start === null || end === null) return null;
+  return Number(end.micro - start.micro) / 1000000 / 3600.0;
+}
+var KNOWN_STATUSES = { solved: 1, closed: 1, open: 1, pending: 1, "on-hold": 1, hold: 1, new: 1 };
+var KNOWN_CSAT = { good: 1, bad: 1, none: 1, "": 1 };
+var OPEN_STATUSES = { open: 1, pending: 1, "on-hold": 1, hold: 1, new: 1 };
+var SOLVED_STATUSES = { solved: 1, closed: 1 };
+var MIN_RATED_TICKETS = 3;
+function F(ticket, rule, severity, message) { return { ticket: ticket, rule: rule, severity: severity, message: message }; }
+function findingStr(f) { return f.severity.toUpperCase() + " [" + f.rule + "] " + f.ticket + ": " + f.message; }
+function parseCsv(text, asOf) {
+  var rows = parseCsvRows(text);
+  if (!rows.length) throw new Error("input is empty, no header row found");
+  var header = rows[0].map(function (name) { return name.trim(); });
+  function need(names, label) {
+    var col = findColumn(header, names);
+    if (col === null) throw new Error("input has no " + label + " column (header is: " + header.join(", ") + ")");
+    return col;
+  }
+  var idColumn = need(["ticket_id", "id"], "ticket_id or id");
+  var agentColumn = need(["agent", "agent_name", "assignee", "assigned_to"], "agent");
+  var statusColumn = need(["status", "ticket_status"], "status");
+  var createdColumn = need(["created_at", "created", "created_date"], "created_at");
+  var firstReplyColumn = findColumn(header, ["first_reply_at", "first_reply", "first_response"]);
+  var solvedColumn = findColumn(header, ["solved_at", "solved", "resolved_at", "resolved", "closed_at"]);
+  var repliesColumn = findColumn(header, ["replies", "reply_count", "agent_replies", "public_replies"]);
+  var reopensColumn = findColumn(header, ["reopens", "reopen_count", "reopened"]);
+  var escalatedColumn = findColumn(header, ["escalated"]);
+  var csatColumn = findColumn(header, ["csat", "satisfaction", "rating"]);
+  var channelColumn = findColumn(header, ["channel", "source"]);
+  var findings = [], tickets = [], seenIds = {};
+  for (var idx = 1; idx < rows.length; idx++) {
+    var row = rows[idx];
+    var lineNumber = idx + 1;
+    if (!row.length || row.every(function (cell) { return !cell.trim(); })) continue;
+    if (row.length !== header.length) {
+      findings.push(F("row " + lineNumber, "malformed-row", "error",
+        "row has " + row.length + " fields but the header has " + header.length + ", so the row was skipped"));
+      continue;
+    }
+    var cells = {};
+    header.forEach(function (name, j) { cells[name] = row[j].trim(); });
+    var ticketId = cells[idColumn];
+    if (!ticketId) {
+      findings.push(F("row " + lineNumber, "missing-ticket-id", "error",
+        "row has no ticket id, so the ticket cannot be matched to an agent"));
+      ticketId = "row " + lineNumber;
+    }
+    if (seenIds[ticketId]) {
+      findings.push(F(ticketId, "duplicate-ticket-id", "error", "ticket id appears more than once in the export"));
+    } else seenIds[ticketId] = 1;
+    var agent = cells[agentColumn];
+    if (!agent) findings.push(F(ticketId, "missing-agent", "error", "ticket has no agent, so it cannot be counted in the per-agent table"));
+    var status = cells[statusColumn].toLowerCase();
+    if (status && !KNOWN_STATUSES[status]) findings.push(F(ticketId, "invalid-status", "error", "status " + pyRepr(status) + " is not a known ticket status"));
+    function parseField(col, raw, label) {
+      if (!raw) return null;
+      var value = parseTimestamp(raw);
+      if (value === null) findings.push(F(ticketId, "invalid-timestamp", "error", label + " date " + pyRepr(raw) + " is not a readable date"));
+      return value;
+    }
+    var createdRaw = cells[createdColumn];
+    var created = parseField(createdColumn, createdRaw, "created");
+    var firstReplyRaw = firstReplyColumn ? cells[firstReplyColumn] : "";
+    var firstReply = parseField(firstReplyColumn, firstReplyRaw, "first reply");
+    var solvedRaw = solvedColumn ? cells[solvedColumn] : "";
+    var solved = parseField(solvedColumn, solvedRaw, "solved");
+    if (created !== null && created.micro > asOf.micro) {
+      findings.push(F(ticketId, "future-timestamp", "error",
+        "created date " + fmtTs(created) + " is after the as-of date " + fmtTs(asOf)));
+    }
+    if (created !== null && firstReply !== null && firstReply.micro < created.micro) {
+      findings.push(F(ticketId, "impossible-dates", "error",
+        "first reply " + fmtTs(firstReply) + " is before the ticket was created " + fmtTs(created)));
+    }
+    if (created !== null && solved !== null && solved.micro < created.micro) {
+      findings.push(F(ticketId, "impossible-dates", "error",
+        "solved date " + fmtTs(solved) + " is before the ticket was created " + fmtTs(created)));
+    }
+    if (firstReply !== null && solved !== null && solved.micro < firstReply.micro) {
+      findings.push(F(ticketId, "impossible-dates", "error",
+        "solved date " + fmtTs(solved) + " is before the first reply " + fmtTs(firstReply)));
+    }
+    var csat = csatColumn ? cells[csatColumn].toLowerCase() : "";
+    if (!KNOWN_CSAT[csat]) {
+      findings.push(F(ticketId, "invalid-csat", "error", "CSAT value " + pyRepr(csat) + " is not good, bad, or none"));
+    }
+    tickets.push({
+      id: ticketId, agent: agent, status: status, created: created,
+      first_reply: firstReply, solved: solved,
+      replies: parseIntPy(repliesColumn ? cells[repliesColumn] : ""),
+      reopens: parseIntPy(reopensColumn ? cells[reopensColumn] : ""),
+      escalated: parseYes(escalatedColumn ? cells[escalatedColumn] : ""),
+      csat: csat, channel: channelColumn ? cells[channelColumn] : "", line: lineNumber
+    });
+  }
+  return { tickets: tickets, findings: findings };
+}
+function audit(tickets, asOf, o) {
+  var findings = [];
+  tickets.forEach(function (t) {
+    var firstHours = hoursBetween(t.created, t.first_reply);
+    var resolutionHours = hoursBetween(t.created, t.solved);
+    var ageHours = t.created !== null ? hoursBetween(t.created, asOf) : null;
+    if (firstHours !== null && firstHours >= 0 && firstHours > o.maxFirstReplyHours) {
+      findings.push(F(t.id, "slow-first-reply", "error",
+        "first reply took " + fmtF(firstHours, 1) + " hours, past the " + fmtF(o.maxFirstReplyHours, 1) + " hour target"));
+    }
+    if (t.first_reply === null && OPEN_STATUSES[t.status] && ageHours !== null && ageHours > o.maxFirstReplyHours) {
+      findings.push(F(t.id, "no-first-reply-overdue", "error",
+        "ticket has waited " + fmtF(ageHours, 1) + " hours with no first reply, past the " + fmtF(o.maxFirstReplyHours, 1) + " hour target"));
+    }
+    if (resolutionHours !== null && resolutionHours >= 0 && SOLVED_STATUSES[t.status] && resolutionHours > o.maxResolutionHours) {
+      findings.push(F(t.id, "slow-resolution", "error",
+        "resolution took " + fmtF(resolutionHours, 1) + " hours, past the " + fmtF(o.maxResolutionHours, 1) + " hour target"));
+    }
+    if (t.reopens >= 2) {
+      findings.push(F(t.id, "reopened-repeatedly", "error", "ticket was reopened " + t.reopens + " times, so the first fix did not hold"));
+    } else if (t.reopens === 1) {
+      findings.push(F(t.id, "reopened-ticket", "warning", "ticket was reopened once, so the first fix did not hold"));
+    }
+    if (t.escalated) findings.push(F(t.id, "escalated-ticket", "warning", "ticket was escalated to another agent or team"));
+    if (t.replies > o.maxReplies) {
+      findings.push(F(t.id, "many-replies", "warning",
+        "ticket took " + t.replies + " replies to solve, past the " + o.maxReplies + " reply limit"));
+    }
+  });
+  var agents = {};
+  tickets.forEach(function (t) { if (t.agent) (agents[t.agent] = agents[t.agent] || []).push(t); });
+  Object.keys(agents).sort().forEach(function (agent) {
+    var list = agents[agent];
+    var openCount = list.filter(function (t) { return OPEN_STATUSES[t.status]; }).length;
+    if (openCount > o.maxOpen) {
+      findings.push(F("agent " + agent, "agent-overload", "error",
+        "agent has " + openCount + " open tickets, past the " + o.maxOpen + " ticket limit"));
+    }
+    var firstTimes = [];
+    list.forEach(function (t) {
+      var v = hoursBetween(t.created, t.first_reply);
+      if (v !== null && v >= 0) firstTimes.push(v);
+    });
+    if (firstTimes.length) {
+      var average = firstTimes.reduce(function (a, b) { return a + b; }, 0) / firstTimes.length;
+      if (average > o.maxFirstReplyHours) {
+        findings.push(F("agent " + agent, "agent-slow-first-reply", "warning",
+          "agent averages " + fmtF(average, 1) + " hours to first reply, past the " + fmtF(o.maxFirstReplyHours, 1) + " hour target"));
+      }
+    }
+    var reopened = list.filter(function (t) { return t.reopens >= 1; }).length;
+    if (list.length) {
+      var reopenRate = reopened / list.length * 100.0;
+      if (reopenRate > o.maxReopenRate) {
+        findings.push(F("agent " + agent, "agent-high-reopen-rate", "warning",
+          "agent reopened " + fmtF(reopenRate, 1) + "% of tickets (" + reopened + " of " + list.length +
+          "), past the " + o.maxReopenRate + "% limit"));
+      }
+    }
+    var rated = list.filter(function (t) { return t.csat === "good" || t.csat === "bad"; });
+    if (rated.length >= MIN_RATED_TICKETS) {
+      var good = rated.filter(function (t) { return t.csat === "good"; }).length;
+      var csatRate = good / rated.length * 100.0;
+      if (csatRate < o.minCsat) {
+        findings.push(F("agent " + agent, "agent-low-csat", "warning",
+          "agent CSAT is " + fmtF(csatRate, 1) + "% good (" + good + " of " + rated.length +
+          " rated), below the " + o.minCsat + "% minimum"));
+      }
+    }
+  });
+  return findings;
+}
+function avgOrNull(values) {
+  return values.length ? values.reduce(function (a, b) { return a + b; }, 0) / values.length : null;
+}
+function summarize(tickets, findings, asOf) {
+  var errors = findings.filter(function (f) { return f.severity === "error"; }).length;
+  var warnings = findings.length - errors;
+  var solved = tickets.filter(function (t) { return SOLVED_STATUSES[t.status]; }).length;
+  var openCount = tickets.filter(function (t) { return OPEN_STATUSES[t.status]; }).length;
+  var firstTimes = [], resolutionTimes = [];
+  tickets.forEach(function (t) {
+    if (t.created !== null && t.created.micro <= asOf.micro) {
+      var first = hoursBetween(t.created, t.first_reply);
+      if (first !== null && first >= 0) firstTimes.push(first);
+      var resolved = hoursBetween(t.created, t.solved);
+      if (resolved !== null && resolved >= 0 && SOLVED_STATUSES[t.status]) resolutionTimes.push(resolved);
+    }
+  });
+  var reopened = tickets.filter(function (t) { return t.reopens >= 1; }).length;
+  var reopenRate = tickets.length ? reopened / tickets.length * 100.0 : 0.0;
+  var escalated = tickets.filter(function (t) { return t.escalated; }).length;
+  var escalationRate = tickets.length ? escalated / tickets.length * 100.0 : 0.0;
+  var rated = tickets.filter(function (t) { return t.csat === "good" || t.csat === "bad"; });
+  var good = rated.filter(function (t) { return t.csat === "good"; }).length;
+  var csatRate = rated.length ? good / rated.length * 100.0 : null;
+  var agents = {};
+  tickets.forEach(function (t) { if (t.agent) (agents[t.agent] = agents[t.agent] || []).push(t); });
+  var perAgent = Object.keys(agents).sort().map(function (agent) {
+    var list = agents[agent];
+    var aFirst = [], aResolved = [];
+    list.forEach(function (t) {
+      if (t.created !== null && t.created.micro <= asOf.micro) {
+        var first = hoursBetween(t.created, t.first_reply);
+        if (first !== null && first >= 0) aFirst.push(first);
+        var resolved = hoursBetween(t.created, t.solved);
+        if (resolved !== null && resolved >= 0 && SOLVED_STATUSES[t.status]) aResolved.push(resolved);
+      }
+    });
+    var aReopened = list.filter(function (t) { return t.reopens >= 1; }).length;
+    var aEscalated = list.filter(function (t) { return t.escalated; }).length;
+    var aRated = list.filter(function (t) { return t.csat === "good" || t.csat === "bad"; });
+    var aGood = aRated.filter(function (t) { return t.csat === "good"; }).length;
+    return { agent: agent, tickets: list.length,
+      solved: list.filter(function (t) { return SOLVED_STATUSES[t.status]; }).length,
+      open: list.filter(function (t) { return OPEN_STATUSES[t.status]; }).length,
+      averageFirst: avgOrNull(aFirst), averageResolution: avgOrNull(aResolved),
+      reopenRate: list.length ? aReopened / list.length * 100.0 : 0.0,
+      escalationRate: list.length ? aEscalated / list.length * 100.0 : 0.0,
+      csatRate: aRated.length ? aGood / aRated.length * 100.0 : null };
+  });
+  return { tickets: tickets.length, findings: findings.length, errors: errors, warnings: warnings,
+    solved: solved, open: openCount, agents: Object.keys(agents).length,
+    averageFirst: avgOrNull(firstTimes), averageResolution: avgOrNull(resolutionTimes),
+    reopenRate: reopenRate, escalationRate: escalationRate, csatRate: csatRate, perAgent: perAgent };
+}
+function formatHours(value) { return value === null ? "n/a" : fmtF(value, 1) + " hours"; }
+function formatRate(value) { return value === null ? "n/a" : fmtF(value, 1) + "%"; }
+function renderText(tickets, findings, summary) {
+  var lines = findings.map(findingStr);
+  lines.push("");
+  lines.push("Tickets: " + summary.tickets + ", findings: " + summary.findings +
+    ", errors: " + summary.errors + ", warnings: " + summary.warnings);
+  lines.push("Solved: " + summary.solved + ", open: " + summary.open + ", agents: " + summary.agents);
+  lines.push("Average first reply: " + formatHours(summary.averageFirst) +
+    ", average resolution: " + formatHours(summary.averageResolution));
+  lines.push("Reopen rate: " + fmtF(summary.reopenRate, 1) + "%, escalation rate: " +
+    fmtF(summary.escalationRate, 1) + "%, CSAT good rate: " + formatRate(summary.csatRate));
+  lines.push("");
+  lines.push("Per-agent summary:");
+  summary.perAgent.forEach(function (row) {
+    lines.push(row.agent + ": " + row.tickets + " tickets, " + row.solved + " solved, " + row.open +
+      " open, first reply " + formatHours(row.averageFirst) + ", resolution " +
+      formatHours(row.averageResolution) + ", reopen " + fmtF(row.reopenRate, 1) +
+      "%, escalation " + fmtF(row.escalationRate, 1) + "%, CSAT " + formatRate(row.csatRate));
+  });
+  if (summary.findings === 0) { lines.push(""); lines.push("All tickets clean."); }
+  return lines.join("\n") + "\n";
+}
+function optInt(v, def) {
+  if (v === undefined || v === null || v === "") return def;
+  var n = Number(v);
+  return isFinite(n) ? Math.trunc(n) : def;
+}
+function optFloat(v, def) {
+  if (v === undefined || v === null || v === "") return def;
+  var n = Number(v);
+  return isFinite(n) ? n : def;
+}
+window.runTool = function (inputText, options) {
+  options = options || {};
+  var o = {
+    maxFirstReplyHours: optFloat(options.maxFirstReplyHours, 4),
+    maxResolutionHours: optFloat(options.maxResolutionHours, 48),
+    maxReplies: optInt(options.maxReplies, 10),
+    maxOpen: optInt(options.maxOpen, 15),
+    maxReopenRate: optInt(options.maxReopenRate, 20),
+    minCsat: optInt(options.minCsat, 80)
+  };
+  if (o.maxFirstReplyHours < 0) return "ERROR: --max-first-reply-hours must be at least 0\n";
+  if (o.maxResolutionHours < 0) return "ERROR: --max-resolution-hours must be at least 0\n";
+  if (o.maxReplies < 0) return "ERROR: --max-replies must be at least 0\n";
+  if (o.maxOpen < 0) return "ERROR: --max-open must be at least 0\n";
+  if (o.maxReopenRate < 0 || o.maxReopenRate > 100) return "ERROR: --max-reopen-rate must be from 0 to 100\n";
+  if (o.minCsat < 0 || o.minCsat > 100) return "ERROR: --min-csat must be from 0 to 100\n";
+  var asOf;
+  if (options.asOf === undefined || options.asOf === null || String(options.asOf).trim() === "") asOf = nowTs();
+  else {
+    asOf = parseTimestamp(String(options.asOf));
+    if (asOf === null) return "ERROR: --as-of " + pyRepr(String(options.asOf)) + " is not a readable date\n";
+  }
+  var parsed;
+  try { parsed = parseCsv(inputText || "", asOf); }
+  catch (e) { return "ERROR: " + e.message + "\n"; }
+  var findings = parsed.findings.concat(audit(parsed.tickets, asOf, o));
+  var summary = summarize(parsed.tickets, findings, asOf);
+  return renderText(parsed.tickets, findings, summary);
+};
+</script>
+<script>
+var SAMPLE = `ticket_id,agent,status,created_at,first_reply_at,solved_at,replies,reopens,escalated,csat,channel
+T-101,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-102,Ana,solved,2026-11-16 09:00,2026-11-17 06:00,2026-11-17 12:00,5,0,no,good,chat
+T-103,Ben,solved,2026-11-15 09:00,2026-11-15 10:00,2026-11-17 10:00,12,1,no,bad,email
+T-104,Ben,open,2026-11-16 09:00,,,0,0,no,bad,chat
+T-105,Cara,solved,2026-11-14 09:00,2026-11-14 09:15,2026-11-14 11:00,2,0,no,good,email
+T-106,Cara,solved,2026-11-13 09:00,2026-11-13 09:20,2026-11-13 10:00,1,2,yes,good,phone
+T-107,Dan,open,2026-11-17 08:00,2026-11-17 08:10,,1,0,no,,chat
+T-108,Dan,open,2026-11-16 08:00,,,0,0,no,,email
+T-109,Dan,pending,2026-11-15 08:00,2026-11-15 08:30,,2,0,no,,email
+T-110,Ana,solved,2026-11-17 10:00,2026-11-17 09:00,2026-11-17 12:00,2,0,no,good,chat
+T-111,Ben,solved,2026-11-16 09:00,2026-11-16 09:30,2026-11-15 09:00,3,0,no,good,email
+T-112,Cara,solved,not-a-date,2026-11-14 09:00,2026-11-14 10:00,2,0,no,good,email
+T-113,Dan,solved,2026-12-01 09:00,2026-12-01 09:30,2026-12-01 10:00,2,0,no,good,chat
+T-101,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-114,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email,extra-field
+,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-115,,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-116,Ben,solved,2026-11-17 09:00,2026-11-17 09:10,2026-11-17 09:20,1,0,no,weird,email
+T-117,Ana,open,2026-11-17 09:00,,,0,0,no,,email
+T-118,Dan,open,2026-11-17 10:00,2026-11-17 10:05,,1,0,no,,chat
+`;
+var SAMPLE_CLEAN = `ticket_id,agent,status,created_at,first_reply_at,solved_at,replies,reopens,escalated,csat,channel
+T-301,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-302,Ana,solved,2026-11-16 09:00,2026-11-16 09:30,2026-11-16 12:00,2,0,no,good,chat
+T-303,Ben,solved,2026-11-15 09:00,2026-11-15 09:30,2026-11-15 11:00,2,0,no,good,email
+T-304,Ben,open,2026-11-17 08:00,2026-11-17 08:10,,1,0,no,,chat
+T-305,Cara,solved,2026-11-14 09:00,2026-11-14 09:15,2026-11-14 11:00,2,0,no,good,email
+`;
+var SAMPLE_WARN = `ticket_id,agent,status,created_at,first_reply_at,solved_at,replies,reopens,escalated,csat,channel
+T-401,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,1,no,good,email
+T-402,Ben,open,2026-11-17 08:00,2026-11-17 08:10,,1,0,no,,chat
+T-403,Ben,solved,2026-11-16 09:00,2026-11-16 09:30,2026-11-16 12:00,2,0,yes,good,email
+`;
+var inputEl = document.getElementById("input");
+var outEl = document.getElementById("out");
+var lastReport = "";
+document.getElementById("file").addEventListener("change", function (ev) {
+  var f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function () { inputEl.value = String(reader.result || ""); };
+  reader.readAsText(f);
+});
+document.getElementById("sample").addEventListener("click", function () { inputEl.value = SAMPLE; });
+document.getElementById("sample-clean").addEventListener("click", function () { inputEl.value = SAMPLE_CLEAN; });
+document.getElementById("sample-warn").addEventListener("click", function () { inputEl.value = SAMPLE_WARN; });
+document.getElementById("run").addEventListener("click", function () {
+  var options = {
+    maxFirstReplyHours: document.getElementById("opt-first").value,
+    maxResolutionHours: document.getElementById("opt-res").value,
+    maxReplies: document.getElementById("opt-replies").value,
+    maxOpen: document.getElementById("opt-open").value,
+    maxReopenRate: document.getElementById("opt-reopen").value,
+    minCsat: document.getElementById("opt-csat").value,
+    asOf: document.getElementById("opt-asof").value
+  };
+  try {
+    lastReport = window.runTool(inputEl.value, options);
+    outEl.textContent = lastReport;
+  } catch (e) {
+    lastReport = "ERROR: " + e.message + "\n";
+    outEl.textContent = lastReport;
+  }
+});
+document.getElementById("download").addEventListener("click", function () {
+  var text = lastReport || outEl.textContent;
+  var blob = new Blob([text], { type: "text/plain" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "support-agent-report.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+ticket_id,agent,status,created_at,first_reply_at,solved_at,replies,reopens,escalated,csat,channel
+T-301,Ana,solved,2026-11-17 09:00,2026-11-17 09:30,2026-11-17 14:00,3,0,no,good,email
+T-302,Ana,solved,2026-11-16 09:00,2026-11-16 09:30,2026-11-16 12:00,2,0,no,good,chat
+T-303,Ben,solved,2026-11-15 09:00,2026-11-15 09:30,2026-11-15 11:00,2,0,no,good,email
+T-304,Ben,open,2026-11-17 08:00,2026-11-17 08:10,,1,0,no,,chat
+T-305,Cara,solved,2026-11-14 09:00,2026-11-14 09:15,2026-11-14 11:00,2,0,no,good,email
